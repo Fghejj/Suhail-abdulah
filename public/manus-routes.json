@@ -4,6 +4,7 @@
     { "path": "/history", "title": "السجل" },
     { "path": "/stats", "title": "الإحصائيات" },
     { "path": "/settings", "title": "الإعدادات" },
+    { "path": "/dev/theme-lab", "title": "مختبر الثيم" },
     { "path": "/oauth/callback", "title": "استكمال تسجيل الدخول" }
   ]
 }
