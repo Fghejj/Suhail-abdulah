@@ -1,6 +1,15 @@
 export type DeviceStatus = "available" | "active" | "paused" | "finished";
 export type SessionStatus = "completed" | "cancelled";
 export type HistoryFilter = "day" | "week" | "month" | "all";
+export type DisplayConnectionMode = "bluetooth" | "hotspot" | "lan";
+export type DisplayPowerState = "on" | "sleep" | "off" | "restarting";
+
+export interface DisplayConnection {
+  mode: DisplayConnectionMode;
+  label: string;
+  connectedAt: number;
+  endpoint?: string;
+}
 
 export interface CurrentSession {
   id: string;
@@ -20,6 +29,8 @@ export interface Device {
   currentSession?: CurrentSession;
   lastAmount: number;
   lastDurationMinutes: number;
+  displayConnection?: DisplayConnection;
+  displayPower: DisplayPowerState;
 }
 
 export interface Session {
@@ -41,6 +52,7 @@ export interface AppSettings {
   notificationsEnabled: boolean;
   soundEnabled: boolean;
   vibrationEnabled: boolean;
+  autoSleepConnectedDisplays: boolean;
 }
 
 export interface AppSnapshot {

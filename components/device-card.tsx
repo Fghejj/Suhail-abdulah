@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { Device } from "@shared/ps-types";
@@ -12,9 +13,10 @@ interface DeviceCardProps {
   onResume: () => void;
   onRestart: () => void;
   onOptions: () => void;
+  onDisplay: () => void;
 }
 
-export function DeviceCard({ device, onStart, onExtend, onPause, onResume, onRestart, onOptions }: DeviceCardProps) {
+export function DeviceCard({ device, onStart, onExtend, onPause, onResume, onRestart, onOptions, onDisplay }: DeviceCardProps) {
   const color = statusColor[device.status];
   const isRunning = device.status === "active" || device.status === "paused";
   const remaining = isRunning ? device.currentSession?.remainingSeconds ?? 0 : 0;
@@ -33,6 +35,11 @@ export function DeviceCard({ device, onStart, onExtend, onPause, onResume, onRes
         <Pill label={statusLabel[device.status]} color={color} icon={statusIcon[device.status]} />
         <View style={[styles.statusDot, { backgroundColor: color }]} />
       </View>
+
+      <Pressable onPress={onDisplay} style={({ pressed }) => [styles.displayLink, pressed && styles.pressed]}>
+        <Ionicons name={device.displayConnection ? (device.displayPower === "sleep" ? "moon" : "tv") : "tv-outline"} size={14} color={device.displayConnection ? palette.success : palette.primarySoft} />
+        <Text style={[styles.displayLinkText, { color: device.displayConnection ? palette.success : palette.primarySoft }]}>{device.displayConnection ? `الشاشة: ${device.displayPower === "sleep" ? "سكون" : device.displayPower === "off" ? "متوقفة" : device.displayPower === "restarting" ? "إعادة تشغيل" : "تعمل"}` : "ربط شاشة البلايستيشن"}</Text>
+      </Pressable>
 
       <View style={styles.timerBlock}>
         <Text style={styles.timerLabel}>{device.status === "finished" ? "انتهت الجلسة" : isRunning ? "الوقت المتبقي" : "جاهز للتشغيل"}</Text>
@@ -89,4 +96,6 @@ const styles = StyleSheet.create({
   metaLabel: { color: palette.muted, fontSize: 11, textAlign: "right" },
   metaValue: { color: palette.text, fontSize: 13, fontWeight: "800", textAlign: "right" },
   actions: { flexDirection: "row", gap: 8, alignItems: "center" },
+  displayLink: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, paddingVertical: 3 },
+  displayLinkText: { fontSize: 11, fontWeight: "800" },
 });

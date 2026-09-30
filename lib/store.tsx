@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useContext, useEffect, useMemo, useState, createContext, type ReactNode } from "react";
 
-import type { AppSettings, AppSnapshot, CurrentSession, Device, SessionInput } from "@shared/ps-types";
+import type { AppSettings, AppSnapshot, CurrentSession, Device, DisplayConnectionMode, DisplayPowerState, SessionInput } from "@shared/ps-types";
 
 const STORAGE_KEY = "@ps-store-manager/snapshot:v1";
 const DEVICE_COLORS = ["#6C2BD9", "#2563EB", "#DB2777", "#0891B2", "#16A34A", "#CA8A04"];
@@ -14,6 +14,7 @@ const defaultSettings: AppSettings = {
   notificationsEnabled: true,
   soundEnabled: true,
   vibrationEnabled: true,
+  autoSleepConnectedDisplays: true,
 };
 
 const makeDevice = (index: number, now: number): Device => ({
@@ -24,6 +25,7 @@ const makeDevice = (index: number, now: number): Device => ({
   createdAt: now - (2 - index) * 60_000,
   lastAmount: 0,
   lastDurationMinutes: 0,
+  displayPower: "on",
 });
 
 export const createSeedSnapshot = (): AppSnapshot => {
@@ -59,6 +61,9 @@ interface StoreValue extends AppSnapshot {
   renameDevice: (id: string, name: string) => void;
   recolorDevice: (id: string, color: string) => void;
   deleteDevice: (id: string) => void;
+  connectDisplay: (deviceId: string, mode: DisplayConnectionMode) => void;
+  disconnectDisplay: (deviceId: string) => void;
+  setDisplayPower: (deviceId: string, power: DisplayPowerState | "restart") => void;
   startSession: (deviceId: string, input: SessionInput) => void;
   addTime: (deviceId: string, input: SessionInput) => void;
   pauseSession: (deviceId: string) => void;
@@ -85,7 +90,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (raw) {
           try {
             const saved = JSON.parse(raw) as AppSnapshot;
-            setSnapshot({ ...createSeedSnapshot(), ...saved, settings: { ...defaultSettings, ...saved.settings } });
+            setSnapshot({ ...createSeedSnapshot(), ...saved, devices: (saved.devices ?? []).map((device, index) => ({ ...makeDevice(index, Date.now()), ...device, displayPower: device.displayPower ?? "on" })), settings: { ...defaultSettings, ...saved.settings } });
           } catch {
             setSnapshot(createSeedSnapshot());
           }
@@ -139,6 +144,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const connectDisplay = useCallback((deviceId: string, mode: DisplayConnectionMode) => {
+    const labels: Record<DisplayConnectionMode, string> = { bluetooth: "بلوتوث", hotspot: "نقطة اتصال", lan: "LAN / IP" };
+    setSnapshot((current) => ({
+      ...current,
+      devices: current.devices.map((device) => device.id === deviceId ? { ...device, displayConnection: { mode, label: labels[mode], connectedAt: Date.now() }, displayPower: "on" } : device),
+    }));
+  }, []);
+
+  const disconnectDisplay = useCallback((deviceId: string) => {
+    setSnapshot((current) => ({
+      ...current,
+      devices: current.devices.map((device) => device.id === deviceId ? { ...device, displayConnection: undefined } : device),
+    }));
+  }, []);
+
+  const setDisplayPower = useCallback((deviceId: string, power: DisplayPowerState | "restart") => {
+    setSnapshot((current) => ({
+      ...current,
+      devices: current.devices.map((device) => {
+        if (device.id !== deviceId || !device.displayConnection) return device;
+        return { ...device, displayPower: power === "restart" ? "restarting" as const : power };
+      }),
+    }));
+    if (power === "restart") {
+      setTimeout(() => setSnapshot((current) => ({ ...current, devices: current.devices.map((device) => device.id === deviceId ? { ...device, displayPower: "on" as const } : device) })), 1200);
+    }
+  }, []);
+
   const startSession = useCallback((deviceId: string, input: SessionInput) => {
     if (input.minutes <= 0 || input.amount < 0) return;
     const now = Date.now();
@@ -154,7 +187,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ...current,
       devices: current.devices.map((device) =>
         device.id === deviceId
-          ? { ...device, status: "active", currentSession: session, lastAmount: input.amount, lastDurationMinutes: input.minutes }
+          ? { ...device, status: "active", currentSession: session, lastAmount: input.amount, lastDurationMinutes: input.minutes, displayPower: device.displayConnection ? "on" : device.displayPower }
           : device,
       ),
     }));
@@ -226,7 +259,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         endAt: now + minutes * 60_000,
         remainingSeconds: minutes * 60,
       };
-      return { ...current, devices: current.devices.map((item) => item.id === deviceId ? { ...item, status: "active", currentSession: session } : item) };
+      return { ...current, devices: current.devices.map((item) => item.id === deviceId ? { ...item, status: "active", currentSession: session, displayPower: item.displayConnection ? "on" : item.displayPower } : item) };
     });
   }, []);
 
@@ -251,7 +284,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             endTime: now,
             status: "completed" as const,
           }];
-          return { ...device, status: "finished" as const, lastAmount: completed.amountPaid, lastDurationMinutes: completed.durationMinutes, currentSession: undefined };
+          return { ...device, status: "finished" as const, lastAmount: completed.amountPaid, lastDurationMinutes: completed.durationMinutes, currentSession: undefined, displayPower: current.settings.autoSleepConnectedDisplays && device.displayConnection ? "sleep" : device.displayPower };
         }
         if (remaining !== device.currentSession.remainingSeconds) {
           changed = true;
@@ -287,6 +320,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     renameDevice,
     recolorDevice,
     deleteDevice,
+    connectDisplay,
+    disconnectDisplay,
+    setDisplayPower,
     startSession,
     addTime,
     pauseSession,
@@ -297,7 +333,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     resetDailyRevenue,
     clearAllData,
     deleteHistory,
-  }), [snapshot, hydrated, addDevice, renameDevice, recolorDevice, deleteDevice, startSession, addTime, pauseSession, resumeSession, restartSession, tick, updateSettings, resetDailyRevenue, clearAllData, deleteHistory]);
+  }), [snapshot, hydrated, addDevice, renameDevice, recolorDevice, deleteDevice, connectDisplay, disconnectDisplay, setDisplayPower, startSession, addTime, pauseSession, resumeSession, restartSession, tick, updateSettings, resetDailyRevenue, clearAllData, deleteHistory]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
