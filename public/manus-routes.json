@@ -1,0 +1,9 @@
+{
+  "routes": [
+    { "path": "/", "title": "الرئيسية" },
+    { "path": "/history", "title": "السجل" },
+    { "path": "/stats", "title": "الإحصائيات" },
+    { "path": "/settings", "title": "الإعدادات" },
+    { "path": "/oauth/callback", "title": "استكمال تسجيل الدخول" }
+  ]
+}
