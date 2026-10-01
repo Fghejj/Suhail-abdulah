@@ -6,23 +6,28 @@ import type { Device } from "@shared/ps-types";
 import { DeviceCard } from "@/components/device-card";
 import { DeviceOptionsModal } from "@/components/device-options-modal";
 import { DisplayConnectionModal } from "@/components/display-connection-modal";
+import { ScreenLinkModal } from "@/components/screen-link-modal";
 import { ConfirmModal, InputModal } from "@/components/input-modal";
 import { AppHeader, MetricCard, Page, SectionTitle, palette, Pill } from "@/components/app-ui";
 import { PaymentModal } from "@/components/payment-modal";
 import { filterSessions, formatMoney, totalRevenue } from "@/lib/formatters";
 import { triggerSessionFeedback } from "@/lib/platform-feedback";
 import { useSessionTicker, useStore } from "@/lib/store";
+import { useScreenControl } from "@/hooks/useScreenControl";
 
 export default function HomeScreen() {
   useSessionTicker();
   const { width } = useWindowDimensions();
   const { devices, sessions, settings, hydrated, addDevice, renameDevice, recolorDevice, deleteDevice, startSession, addTime, pauseSession, resumeSession, restartSession, connectDisplay, disconnectDisplay, setDisplayPower } = useStore();
+  const { screens, discovering, discover } = useScreenControl();
   const [selectedDevice, setSelectedDevice] = useState<Device>();
   const [paymentMode, setPaymentMode] = useState<"start" | "extend">("start");
   const [showPayment, setShowPayment] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [showDisplayConnection, setShowDisplayConnection] = useState(false);
+  const [showScreenLink, setShowScreenLink] = useState(false);
+  const [linkTarget, setLinkTarget] = useState<Device>();
   const [confirmDelete, setConfirmDelete] = useState<Device>();
   const seenSessions = useRef(new Set<string>());
 
@@ -55,13 +60,20 @@ export default function HomeScreen() {
     setShowDisplayConnection(true);
   };
 
+  const openScreenLink = (device?: Device) => {
+    const target = device ?? selectedDevice ?? devices[0];
+    if (!target) return;
+    setLinkTarget(target);
+    setShowScreenLink(true);
+  };
+
   if (!hydrated) {
     return <Page scroll={false}><View style={styles.loading}><View style={styles.loadingMark}><Ionicons name="game-controller" size={34} color={palette.primarySoft} /></View><Text style={styles.loadingTitle}>جاري تجهيز المحل</Text><Text style={styles.loadingText}>نستعيد الأجهزة والجلسات المحفوظة...</Text></View></Page>;
   }
 
   return (
     <Page>
-      <AppHeader title="لوحة المحل" subtitle="إدارة الجلسات والوقت في مكان واحد" action={<View style={styles.headerActions}><Pressable onPress={() => { if (devices[0]) openDisplayConnection(devices[0]); }} style={({ pressed }) => [styles.headerConnect, pressed && styles.pressed]}><Ionicons name="tv-outline" size={18} color={palette.primarySoft} /><Text style={styles.headerConnectText}>ربط شاشة</Text></Pressable><Pressable onPress={() => setShowAdd(true)} style={({ pressed }) => [styles.headerAdd, pressed && styles.pressed]}><Ionicons name="add" size={20} color={palette.text} /><Text style={styles.headerAddText}>جهاز جديد</Text></Pressable></View>} />
+      <AppHeader title="لوحة المحل" subtitle="إدارة الجلسات والوقت في مكان واحد" action={<View style={styles.headerActions}><Pressable onPress={() => openScreenLink()} style={({ pressed }) => [styles.headerConnect, pressed && styles.pressed]}><Ionicons name="tv-outline" size={18} color={palette.primarySoft} /><Text style={styles.headerConnectText}>ربط شاشة</Text></Pressable><Pressable onPress={() => setShowAdd(true)} style={({ pressed }) => [styles.headerAdd, pressed && styles.pressed]}><Ionicons name="add" size={20} color={palette.text} /><Text style={styles.headerAddText}>جهاز جديد</Text></Pressable></View>} />
 
       <View style={styles.metricsRow}>
         <MetricCard label="أرباح اليوم" value={formatMoney(todayRevenue)} icon="wallet" accent={palette.primarySoft} />
@@ -83,6 +95,7 @@ export default function HomeScreen() {
       <InputModal key={`add-${showAdd}`} visible={showAdd} title="إضافة جهاز جديد" label="اسم الجهاز" placeholder={`مثال: جهاز ${devices.length + 1}`} confirmLabel="إضافة الجهاز" onClose={() => setShowAdd(false)} onConfirm={(name) => addDevice(name)} />
       <DeviceOptionsModal key={`${selectedDevice?.id ?? "none"}-${showOptions}`} visible={showOptions} device={selectedDevice} onClose={() => setShowOptions(false)} onRename={(name) => { if (selectedDevice) renameDevice(selectedDevice.id, name); }} onColor={(color) => { if (selectedDevice) recolorDevice(selectedDevice.id, color); }} onDelete={() => { if (selectedDevice) setConfirmDelete(selectedDevice); setShowOptions(false); }} />
       <DisplayConnectionModal visible={showDisplayConnection} device={selectedDevice} onClose={() => setShowDisplayConnection(false)} onConnect={(mode) => { if (selectedDevice) connectDisplay(selectedDevice.id, mode); }} onDisconnect={() => { if (selectedDevice) disconnectDisplay(selectedDevice.id); }} onPower={(power) => { if (selectedDevice) setDisplayPower(selectedDevice.id, power); }} />
+      <ScreenLinkModal visible={showScreenLink} consoleId={linkTarget?.id ?? ""} consoleName={linkTarget?.name ?? ""} availableScreens={screens} discovering={discovering} onDiscover={() => { void discover(); }} onLink={(screen) => { if (linkTarget) connectDisplay(linkTarget.id, screen.connectionType, screen); }} onClose={() => setShowScreenLink(false)} />
       <ConfirmModal visible={!!confirmDelete} title="حذف الجهاز؟" message={`سيتم حذف ${confirmDelete?.name ?? "الجهاز"} من الشبكة. السجل السابق سيبقى محفوظاً.`} onClose={() => setConfirmDelete(undefined)} onConfirm={() => { if (confirmDelete) deleteDevice(confirmDelete.id); setConfirmDelete(undefined); }} />
     </Page>
   );

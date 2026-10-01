@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useContext, useEffect, useMemo, useState, createContext, type ReactNode } from "react";
 
-import type { AppSettings, AppSnapshot, CurrentSession, Device, DisplayConnectionMode, DisplayPowerState, SessionInput } from "@shared/ps-types";
+import type { AppSettings, AppSnapshot, CurrentSession, Device, DisplayConnectionMode, DisplayPowerState, ScreenType, SessionInput } from "@shared/ps-types";
 
 const STORAGE_KEY = "@ps-store-manager/snapshot:v1";
 const DEVICE_COLORS = ["#6C2BD9", "#2563EB", "#DB2777", "#0891B2", "#16A34A", "#CA8A04"];
@@ -61,7 +61,7 @@ interface StoreValue extends AppSnapshot {
   renameDevice: (id: string, name: string) => void;
   recolorDevice: (id: string, color: string) => void;
   deleteDevice: (id: string) => void;
-  connectDisplay: (deviceId: string, mode: DisplayConnectionMode) => void;
+  connectDisplay: (deviceId: string, mode: DisplayConnectionMode, details?: { id: string; name: string; type: ScreenType; ip: string; port?: number; mac?: string; autoStandby?: boolean }) => void;
   disconnectDisplay: (deviceId: string) => void;
   setDisplayPower: (deviceId: string, power: DisplayPowerState | "restart") => void;
   startSession: (deviceId: string, input: SessionInput) => void;
@@ -144,11 +144,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const connectDisplay = useCallback((deviceId: string, mode: DisplayConnectionMode) => {
+  const connectDisplay = useCallback((deviceId: string, mode: DisplayConnectionMode, details?: { id: string; name: string; type: ScreenType; ip: string; port?: number; mac?: string; autoStandby?: boolean }) => {
     const labels: Record<DisplayConnectionMode, string> = { bluetooth: "بلوتوث", hotspot: "نقطة اتصال", lan: "LAN / IP" };
     setSnapshot((current) => ({
       ...current,
-      devices: current.devices.map((device) => device.id === deviceId ? { ...device, displayConnection: { mode, label: labels[mode], connectedAt: Date.now() }, displayPower: "on" } : device),
+      devices: current.devices.map((device) => device.id === deviceId ? { ...device, displayConnection: { screenId: details?.id, mode, label: details?.name ?? labels[mode], connectedAt: Date.now(), endpoint: details?.ip, screenType: details?.type, ip: details?.ip, port: details?.port, mac: details?.mac, autoStandby: details?.autoStandby ?? true }, displayPower: "on" } : device),
     }));
   }, []);
 

@@ -3,12 +3,19 @@ export type SessionStatus = "completed" | "cancelled";
 export type HistoryFilter = "day" | "week" | "month" | "all";
 export type DisplayConnectionMode = "bluetooth" | "hotspot" | "lan";
 export type DisplayPowerState = "on" | "sleep" | "off" | "restarting";
+export type ScreenType = "samsung" | "lg" | "android_tv" | "sony" | "philips" | "ps4" | "ps5";
 
 export interface DisplayConnection {
+  screenId?: string;
   mode: DisplayConnectionMode;
   label: string;
   connectedAt: number;
   endpoint?: string;
+  screenType?: ScreenType;
+  ip?: string;
+  port?: number;
+  mac?: string;
+  autoStandby?: boolean;
 }
 
 export interface CurrentSession {
