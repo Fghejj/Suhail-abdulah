@@ -12,7 +12,7 @@ interface PaymentModalProps {
   settings: AppSettings;
   mode: "start" | "extend";
   onClose: () => void;
-  onConfirm: (amount: number, minutes: number) => void;
+  onConfirm: (amount: number, minutes: number) => void | Promise<void>;
 }
 
 export function PaymentModal({ visible, device, settings, mode, onClose, onConfirm }: PaymentModalProps) {
@@ -29,7 +29,7 @@ export function PaymentModal({ visible, device, settings, mode, onClose, onConfi
 
   const submit = () => {
     if (amount <= 0 || calculatedMinutes <= 0) return;
-    onConfirm(amount, Math.max(1, Math.round(calculatedMinutes)));
+    void onConfirm(amount, Math.max(1, Math.round(calculatedMinutes)));
   };
 
   return (

@@ -18,8 +18,8 @@ import { useScreenControl } from "@/hooks/useScreenControl";
 export default function HomeScreen() {
   useSessionTicker();
   const { width } = useWindowDimensions();
-  const { devices, sessions, settings, hydrated, addDevice, renameDevice, recolorDevice, deleteDevice, startSession, addTime, pauseSession, resumeSession, restartSession, connectDisplay, disconnectDisplay, setDisplayPower } = useStore();
-  const { screens, discovering, discover } = useScreenControl();
+  const { devices, sessions, settings, hydrated, addDevice, renameDevice, recolorDevice, deleteDevice, startSession, endSession, addTime, pauseSession, resumeSession, restartSession, connectDisplay, disconnectDisplay, setDisplayPower } = useStore();
+  const { screens, discovering, discover, wakeOnSessionStart, autoStandbyAfterSession } = useScreenControl();
   const [selectedDevice, setSelectedDevice] = useState<Device>();
   const [paymentMode, setPaymentMode] = useState<"start" | "extend">("start");
   const [showPayment, setShowPayment] = useState(false);
@@ -35,12 +35,13 @@ export default function HomeScreen() {
     sessions.forEach((session) => {
       if (!seenSessions.current.has(session.id)) {
         seenSessions.current.add(session.id);
+        if (hydrated) void autoStandbyAfterSession(session.deviceId);
         if (hydrated && Date.now() - session.endTime < 5000 && settings.notificationsEnabled) {
           void triggerSessionFeedback(settings, session.deviceName);
         }
       }
     });
-  }, [sessions, settings, hydrated]);
+  }, [sessions, settings, hydrated, autoStandbyAfterSession]);
 
   const available = devices.filter((device) => device.status === "available").length;
   const busy = devices.filter((device) => device.status === "active" || device.status === "paused").length;
@@ -85,13 +86,13 @@ export default function HomeScreen() {
 
       <SectionTitle title="الأجهزة" trailing={<Text style={styles.countText}>{devices.length} أجهزة</Text>} />
       <View style={styles.grid}>
-        {devices.map((device) => <View key={device.id} style={columns === 1 ? styles.singleColumn : styles.multiColumn}><DeviceCard device={device} onStart={() => openPayment(device, "start")} onExtend={() => openPayment(device, "extend")} onPause={() => pauseSession(device.id)} onResume={() => resumeSession(device.id)} onRestart={() => restartSession(device.id)} onOptions={() => { setSelectedDevice(device); setShowOptions(true); }} onDisplay={() => openDisplayConnection(device)} /></View>)}
+        {devices.map((device) => <View key={device.id} style={columns === 1 ? styles.singleColumn : styles.multiColumn}><DeviceCard device={device} onStart={() => openPayment(device, "start")} onEnd={() => endSession(device.id)} onExtend={() => openPayment(device, "extend")} onPause={() => pauseSession(device.id)} onResume={() => resumeSession(device.id)} onRestart={async () => { await wakeOnSessionStart(device.id); restartSession(device.id); }} onOptions={() => { setSelectedDevice(device); setShowOptions(true); }} onDisplay={() => openDisplayConnection(device)} /></View>)}
       </View>
 
       <View style={styles.tip}><Ionicons name="bulb-outline" size={16} color={palette.primarySoft} /><Text style={styles.tipText}>اضغط مطولاً على أي بطاقة لإعادة التسمية أو تغيير لونها.</Text></View>
       <Pressable onPress={() => setShowAdd(true)} style={({ pressed }) => [styles.fab, pressed && styles.pressed]}><Ionicons name="add" size={25} color={palette.text} /><Text style={styles.fabText}>إضافة جهاز</Text></Pressable>
 
-      <PaymentModal key={`${selectedDevice?.id ?? "none"}-${paymentMode}-${showPayment}`} visible={showPayment} device={selectedDevice} settings={settings} mode={paymentMode} onClose={() => setShowPayment(false)} onConfirm={(amount, minutes) => { if (selectedDevice) { if (paymentMode === "start") startSession(selectedDevice.id, { amount, minutes }); else addTime(selectedDevice.id, { amount, minutes }); } setShowPayment(false); }} />
+      <PaymentModal key={`${selectedDevice?.id ?? "none"}-${paymentMode}-${showPayment}`} visible={showPayment} device={selectedDevice} settings={settings} mode={paymentMode} onClose={() => setShowPayment(false)} onConfirm={async (amount, minutes) => { if (selectedDevice) { if (paymentMode === "start") { await wakeOnSessionStart(selectedDevice.id); startSession(selectedDevice.id, { amount, minutes }); } else addTime(selectedDevice.id, { amount, minutes }); } setShowPayment(false); }} />
       <InputModal key={`add-${showAdd}`} visible={showAdd} title="إضافة جهاز جديد" label="اسم الجهاز" placeholder={`مثال: جهاز ${devices.length + 1}`} confirmLabel="إضافة الجهاز" onClose={() => setShowAdd(false)} onConfirm={(name) => addDevice(name)} />
       <DeviceOptionsModal key={`${selectedDevice?.id ?? "none"}-${showOptions}`} visible={showOptions} device={selectedDevice} onClose={() => setShowOptions(false)} onRename={(name) => { if (selectedDevice) renameDevice(selectedDevice.id, name); }} onColor={(color) => { if (selectedDevice) recolorDevice(selectedDevice.id, color); }} onDelete={() => { if (selectedDevice) setConfirmDelete(selectedDevice); setShowOptions(false); }} />
       <DisplayConnectionModal visible={showDisplayConnection} device={selectedDevice} onClose={() => setShowDisplayConnection(false)} onConnect={(mode) => { if (selectedDevice) connectDisplay(selectedDevice.id, mode); }} onDisconnect={() => { if (selectedDevice) disconnectDisplay(selectedDevice.id); }} onPower={(power) => { if (selectedDevice) setDisplayPower(selectedDevice.id, power); }} />

@@ -8,6 +8,7 @@ import { ActionButton, IconButton, palette, Pill } from "@/components/app-ui";
 interface DeviceCardProps {
   device: Device;
   onStart: () => void;
+  onEnd: () => void;
   onExtend: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -16,7 +17,7 @@ interface DeviceCardProps {
   onDisplay: () => void;
 }
 
-export function DeviceCard({ device, onStart, onExtend, onPause, onResume, onRestart, onOptions, onDisplay }: DeviceCardProps) {
+export function DeviceCard({ device, onStart, onEnd, onExtend, onPause, onResume, onRestart, onOptions, onDisplay }: DeviceCardProps) {
   const color = statusColor[device.status];
   const isRunning = device.status === "active" || device.status === "paused";
   const remaining = isRunning ? device.currentSession?.remainingSeconds ?? 0 : 0;
@@ -64,12 +65,14 @@ export function DeviceCard({ device, onStart, onExtend, onPause, onResume, onRes
         {device.status === "finished" ? <ActionButton label="إعادة التشغيل" icon="refresh" onPress={onRestart} tone="danger" /> : null}
         {device.status === "active" ? (
           <>
+            <ActionButton label="إنهاء" icon="stop-circle" onPress={onEnd} tone="danger" small />
             <ActionButton label="إضافة وقت" icon="add-circle" onPress={onExtend} small />
             <ActionButton label="إيقاف مؤقت" icon="pause" onPress={onPause} tone="secondary" small />
           </>
         ) : null}
         {device.status === "paused" ? (
           <>
+            <ActionButton label="إنهاء" icon="stop-circle" onPress={onEnd} tone="danger" small />
             <ActionButton label="استئناف" icon="play" onPress={onResume} tone="success" small />
             <ActionButton label="إضافة وقت" icon="add-circle" onPress={onExtend} tone="secondary" small />
           </>

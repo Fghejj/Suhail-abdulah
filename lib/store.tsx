@@ -65,6 +65,7 @@ interface StoreValue extends AppSnapshot {
   disconnectDisplay: (deviceId: string) => void;
   setDisplayPower: (deviceId: string, power: DisplayPowerState | "restart") => void;
   startSession: (deviceId: string, input: SessionInput) => void;
+  endSession: (deviceId: string) => void;
   addTime: (deviceId: string, input: SessionInput) => void;
   pauseSession: (deviceId: string) => void;
   resumeSession: (deviceId: string) => void;
@@ -191,6 +192,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           : device,
       ),
     }));
+  }, []);
+
+  const endSession = useCallback((deviceId: string) => {
+    const now = Date.now();
+    setSnapshot((current) => {
+      const device = current.devices.find((item) => item.id === deviceId);
+      if (!device?.currentSession || !["active", "paused"].includes(device.status)) return current;
+      const completed = device.currentSession;
+      return {
+        ...current,
+        sessions: [...current.sessions, { id: completed.id, deviceId: device.id, deviceName: device.name, durationMinutes: completed.durationMinutes, amountPaid: completed.amountPaid, startTime: completed.startedAt, endTime: now, status: "completed" as const }],
+        devices: current.devices.map((item) => item.id === deviceId ? { ...item, status: "finished" as const, currentSession: undefined, lastAmount: completed.amountPaid, lastDurationMinutes: completed.durationMinutes, displayPower: current.settings.autoSleepConnectedDisplays && item.displayConnection ? "sleep" : item.displayPower } : item),
+      };
+    });
   }, []);
 
   const addTime = useCallback((deviceId: string, input: SessionInput) => {
@@ -324,6 +339,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     disconnectDisplay,
     setDisplayPower,
     startSession,
+    endSession,
     addTime,
     pauseSession,
     resumeSession,
@@ -333,7 +349,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     resetDailyRevenue,
     clearAllData,
     deleteHistory,
-  }), [snapshot, hydrated, addDevice, renameDevice, recolorDevice, deleteDevice, connectDisplay, disconnectDisplay, setDisplayPower, startSession, addTime, pauseSession, resumeSession, restartSession, tick, updateSettings, resetDailyRevenue, clearAllData, deleteHistory]);
+  }), [snapshot, hydrated, addDevice, renameDevice, recolorDevice, deleteDevice, connectDisplay, disconnectDisplay, setDisplayPower, startSession, endSession, addTime, pauseSession, resumeSession, restartSession, tick, updateSettings, resetDailyRevenue, clearAllData, deleteHistory]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
