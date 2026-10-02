@@ -146,7 +146,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const connectDisplay = useCallback((deviceId: string, mode: DisplayConnectionMode, details?: { id: string; name: string; type: ScreenType; ip: string; port?: number; mac?: string; autoStandby?: boolean }) => {
-    const labels: Record<DisplayConnectionMode, string> = { bluetooth: "بلوتوث", hotspot: "نقطة اتصال", lan: "LAN / IP" };
+    const labels: Record<DisplayConnectionMode, string> = { bluetooth: "بلوتوث", hotspot: "نقطة اتصال", lan: "LAN / IP", pairing_code: "رمز الاقتران" };
     setSnapshot((current) => ({
       ...current,
       devices: current.devices.map((device) => device.id === deviceId ? { ...device, displayConnection: { screenId: details?.id, mode, label: details?.name ?? labels[mode], connectedAt: Date.now(), endpoint: details?.ip, screenType: details?.type, ip: details?.ip, port: details?.port, mac: details?.mac, autoStandby: details?.autoStandby ?? true }, displayPower: "on" } : device),

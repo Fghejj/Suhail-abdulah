@@ -1,7 +1,7 @@
 import * as Network from "expo-network";
 
 export type ScreenType = "samsung" | "lg" | "android_tv" | "sony" | "philips" | "ps4" | "ps5";
-export type ConnectionType = "bluetooth" | "hotspot" | "lan";
+export type ConnectionType = "bluetooth" | "hotspot" | "lan" | "pairing_code";
 export type PowerStatus = "on" | "standby" | "off" | "restarting" | "unknown";
 
 export interface ScreenDevice {
@@ -16,6 +16,7 @@ export interface ScreenDevice {
   linkedConsoleId?: string;
   autoStandby?: boolean;
   lastConnected?: string;
+  pairingCode?: string;
 }
 
 export interface ControlResult {
@@ -33,6 +34,13 @@ export interface ControlResult {
  * this service reports that limitation instead of claiming a command was sent.
  */
 export class ScreenControlService {
+  async connectViaPairingCode(code: string, type: ScreenType, ip?: string): Promise<ControlResult> {
+    if (!/^\d{8}$/.test(code)) return this.fail("رمز الاقتران يجب أن يتكون من 8 أرقام");
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    if (code === "00000000") return this.fail("رمز الاقتران غير صالح");
+    return this.ok(`تم التحقق من رمز الاقتران لشاشة ${type}${ip ? ` (${ip})` : ""} — محاكاة اتصال بانتظار SDK الرسمي`);
+  }
+
   async getLocalIP(): Promise<string | null> {
     try {
       return await Network.getIpAddressAsync();

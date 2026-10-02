@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 
-import type { ConnectionType, ScreenDevice, ScreenType } from "@/services/ScreenControlService";
+import { screenControlService, type ConnectionType, type ScreenDevice, type ScreenType } from "@/services/ScreenControlService";
 import { palette } from "@/components/app-ui";
 
 interface ScreenLinkModalProps {
@@ -30,6 +30,7 @@ const connectionTypes: { value: ConnectionType; label: string; icon: keyof typeo
   { value: "lan", label: "شبكة محلية IP", icon: "globe-outline" },
   { value: "bluetooth", label: "Bluetooth", icon: "bluetooth" },
   { value: "hotspot", label: "نقطة اتصال", icon: "wifi-outline" },
+  { value: "pairing_code", label: "رمز الاقتران", icon: "keypad-outline" },
 ];
 
 export function ScreenLinkModal({ visible, consoleId, consoleName, availableScreens, discovering = false, onDiscover, onLink, onClose }: ScreenLinkModalProps) {
@@ -41,6 +42,11 @@ export function ScreenLinkModal({ visible, consoleId, consoleName, availableScre
   const [name, setName] = useState("");
   const [autoStandby, setAutoStandby] = useState(true);
   const [error, setError] = useState("");
+  const [pairingCode, setPairingCode] = useState<string[]>(Array(8).fill(""));
+  const [pairingLoading, setPairingLoading] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const [successMessage, setSuccessMessage] = useState("");
+  const inputRefs = useRef<(TextInput | null)[]>([]);
 
   const resetForm = () => {
     setIp("");
@@ -48,12 +54,61 @@ export function ScreenLinkModal({ visible, consoleId, consoleName, availableScre
     setName("");
     setAutoStandby(true);
     setError("");
+    setPairingCode(Array(8).fill(""));
+    setPairingLoading(false);
     setStep("select");
+    setSuccessMessage("");
+    setFocusedIndex(0);
   };
 
   const close = () => {
     resetForm();
     onClose();
+  };
+
+  useEffect(() => {
+    if (visible && step === "manual" && connection === "pairing_code") {
+      const timer = setTimeout(() => inputRefs.current[0]?.focus(), 120);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [visible, step, connection]);
+
+  const updatePairingDigit = (index: number, value: string) => {
+    if (pairingLoading) return;
+    const digit = value.replace(/[^0-9]/g, "").slice(-1);
+    const next = [...pairingCode];
+    next[index] = digit;
+    setPairingCode(next);
+    if (digit && index < 7) inputRefs.current[index + 1]?.focus();
+    if (digit && index === 7 && next.every(Boolean)) void handlePairingLink(next.join(""));
+  };
+
+  const handlePairingKey = (index: number, key: string) => {
+    if (key === "Backspace" && !pairingCode[index] && index > 0) inputRefs.current[index - 1]?.focus();
+  };
+
+  const clearPairingCode = () => {
+    if (pairingLoading) return;
+    setPairingCode(Array(8).fill(""));
+    inputRefs.current[0]?.focus();
+  };
+
+  const handlePairingLink = async (code: string) => {
+    setPairingLoading(true);
+    setError("");
+    const result = await screenControlService.connectViaPairingCode(code, selectedType, ip.trim() || undefined);
+    if (!result.success) {
+      setError("فشل الربط، تأكد من الرمز وحاول مجدداً");
+      setPairingCode(Array(8).fill(""));
+      setPairingLoading(false);
+      setTimeout(() => inputRefs.current[0]?.focus(), 50);
+      return;
+    }
+    onLink({ id: `pairing-${selectedType}-${code}`, name: name.trim() || `${selectedType} · ${code}`, type: selectedType, ip: ip.trim(), connectionType: "pairing_code", status: "on", linkedConsoleId: consoleId, autoStandby, pairingCode: code });
+    setSuccessMessage("تم ربط الشاشة بنجاح");
+    setPairingLoading(false);
+    setTimeout(close, 700);
   };
 
   const selectScreen = (screen: ScreenDevice) => {
@@ -91,6 +146,7 @@ export function ScreenLinkModal({ visible, consoleId, consoleName, availableScre
             <View style={styles.headerCopy}><Text style={styles.kicker}>ربط شاشة بالبلايستيشن</Text><Text style={styles.title}>{consoleName}</Text></View>
           </View>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+            {successMessage ? <View style={styles.successBanner}><Ionicons name="checkmark-circle" size={18} color={palette.success} /><Text style={styles.successText}>{successMessage}</Text></View> : null}
             {step === "select" ? <>
               <View style={styles.discoveryHeader}><Text style={styles.sectionTitle}>الشاشات المكتشفة</Text><Pressable disabled={discovering} onPress={onDiscover} style={styles.scanButton}><Ionicons name="scan" size={15} color={palette.primarySoft} /><Text style={styles.scanText}>{discovering ? "جارٍ البحث" : "بحث"}</Text></Pressable></View>
               {availableScreens.length > 0 ? availableScreens.map((screen) => <Pressable key={screen.id} onPress={() => selectScreen(screen)} style={({ pressed }) => [styles.discoveredItem, pressed && styles.pressed]}><View style={styles.deviceIcon}><Ionicons name="tv-outline" size={19} color={palette.success} /></View><View style={styles.discoveredCopy}><Text style={styles.discoveredName}>{screen.name}</Text><Text style={styles.discoveredMeta}>{screen.ip || "بدون IP"} · {screen.connectionType.toUpperCase()}</Text></View><Ionicons name="chevron-back" size={18} color={palette.muted} /></Pressable>) : <View style={styles.empty}><Ionicons name="search-outline" size={25} color={palette.muted} /><Text style={styles.emptyText}>لم يتم العثور على شاشات بعد</Text></View>}
@@ -101,13 +157,21 @@ export function ScreenLinkModal({ visible, consoleId, consoleName, availableScre
               <View style={styles.chips}>{screenTypes.map((type) => <Pressable key={type.value} onPress={() => setSelectedType(type.value)} style={[styles.chip, selectedType === type.value && styles.chipActive]}><Ionicons name={type.icon} size={17} color={selectedType === type.value ? palette.text : palette.muted} /><Text style={[styles.chipText, selectedType === type.value && styles.chipTextActive]}>{type.label}</Text></Pressable>)}</View>
               <Text style={styles.fieldLabel}>طريقة الربط</Text>
               <View style={styles.chips}>{connectionTypes.map((type) => <Pressable key={type.value} onPress={() => setConnection(type.value)} style={[styles.chip, connection === type.value && styles.chipActive]}><Ionicons name={type.icon} size={17} color={connection === type.value ? palette.text : palette.muted} /><Text style={[styles.chipText, connection === type.value && styles.chipTextActive]}>{type.label}</Text></Pressable>)}</View>
+              {connection === "pairing_code" ? <View style={styles.pairingPanel}>
+                <View style={styles.pairingTitleRow}><View style={styles.pairingBadge}><Ionicons name="keypad-outline" size={17} color={palette.orange} /></View><View style={styles.pairingCopy}><Text style={styles.pairingTitle}>رمز الاقتران</Text><Text style={styles.pairingHelp}>أدخل الرمز المكون من 8 أرقام الظاهر على شاشتك</Text></View></View>
+                <Text style={styles.pairingSecondary}>يمكنك العثور على الرمز في إعدادات الشاشة ← التحكم عن بُعد ← رمز الاقتران</Text>
+                <View style={styles.otpRow}>{pairingCode.map((digit, index) => <View key={index} style={styles.otpSlotWrap}>{index === 4 ? <View style={styles.otpDivider} /> : null}<TextInput ref={(ref) => { inputRefs.current[index] = ref; }} value={digit} onFocus={() => setFocusedIndex(index)} onChangeText={(value) => updatePairingDigit(index, value)} onKeyPress={({ nativeEvent }) => handlePairingKey(index, nativeEvent.key)} keyboardType="number-pad" maxLength={1} editable={!pairingLoading} selectTextOnFocus style={[styles.otpInput, focusedIndex === index ? styles.otpFocused : null, digit ? styles.otpFilled : null]} textAlign="center" /> </View>)}</View>
+                <Pressable disabled={pairingLoading} onPress={clearPairingCode} style={styles.clearCode}><Ionicons name="trash-outline" size={15} color={palette.muted} /><Text style={styles.clearText}>مسح الكل</Text></Pressable>
+                {pairingLoading ? <View style={styles.pairingLoading}><ActivityIndicator color={palette.primarySoft} /><Text style={styles.loadingText}>جارٍ التحقق والاتصال...</Text></View> : null}
+                {ip.trim() ? null : <TextInput value={ip} onChangeText={setIp} placeholder="عنوان IP اختياري" placeholderTextColor={palette.muted} keyboardType="numeric" autoCapitalize="none" editable={!pairingLoading} style={styles.input} textAlign="right" />}
+              </View> : null}
               <Text style={styles.fieldLabel}>معلومات اختيارية</Text>
-              <TextInput value={name} onChangeText={setName} placeholder="اسم الشاشة" placeholderTextColor={palette.muted} style={styles.input} textAlign="right" />
+              <TextInput value={name} onChangeText={setName} placeholder="اسم الشاشة" placeholderTextColor={palette.muted} editable={!pairingLoading} style={styles.input} textAlign="right" />
               {connection === "lan" ? <TextInput value={ip} onChangeText={setIp} placeholder="عنوان IP مثل 192.168.1.100" placeholderTextColor={palette.muted} keyboardType="numeric" autoCapitalize="none" style={styles.input} textAlign="right" /> : null}
-              <TextInput value={mac} onChangeText={setMac} placeholder="عنوان MAC (اختياري)" placeholderTextColor={palette.muted} autoCapitalize="characters" style={styles.input} textAlign="right" />
+              {connection !== "pairing_code" ? <TextInput value={mac} onChangeText={setMac} placeholder="عنوان MAC (اختياري)" placeholderTextColor={palette.muted} autoCapitalize="characters" style={styles.input} textAlign="right" /> : null}
               <View style={styles.switchRow}><View style={styles.switchCopy}><Text style={styles.switchTitle}>سكون تلقائي بعد الجلسة</Text><Text style={styles.switchDescription}>يتم طلب السكون عند انتهاء وقت الجهاز</Text></View><Switch value={autoStandby} onValueChange={setAutoStandby} trackColor={{ false: palette.border, true: `${palette.success}88` }} thumbColor={autoStandby ? palette.success : palette.muted} /></View>
               {error ? <Text style={styles.error}>{error}</Text> : null}
-              <View style={styles.actions}><Pressable onPress={() => setStep("select")} style={styles.backButton}><Text style={styles.backText}>رجوع</Text></Pressable><Pressable onPress={handleManualLink} style={styles.linkButton}><Ionicons name="link" size={17} color={palette.text} /><Text style={styles.linkText}>ربط الشاشة</Text></Pressable></View>
+              {connection !== "pairing_code" ? <View style={styles.actions}><Pressable onPress={() => setStep("select")} style={styles.backButton}><Text style={styles.backText}>رجوع</Text></Pressable><Pressable onPress={handleManualLink} style={styles.linkButton}><Ionicons name="link" size={17} color={palette.text} /><Text style={styles.linkText}>ربط الشاشة</Text></Pressable></View> : null}
             </>}
           </ScrollView>
         </View>
@@ -158,4 +222,23 @@ const styles = StyleSheet.create({
   backText: { color: palette.muted, fontSize: 12, fontWeight: "800" },
   linkButton: { flex: 2, minHeight: 44, borderRadius: 13, backgroundColor: palette.success, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
   linkText: { color: palette.text, fontSize: 12, fontWeight: "900" },
+  pairingPanel: { borderWidth: 1, borderColor: `${palette.orange}55`, backgroundColor: `${palette.orange}0D`, borderRadius: 16, padding: 13, gap: 10 },
+  pairingTitleRow: { flexDirection: "row", alignItems: "center", gap: 9 },
+  pairingBadge: { width: 34, height: 34, borderRadius: 11, backgroundColor: `${palette.orange}20`, alignItems: "center", justifyContent: "center" },
+  pairingCopy: { flex: 1 },
+  pairingTitle: { color: palette.text, fontSize: 13, fontWeight: "900", textAlign: "right" },
+  pairingHelp: { color: palette.muted, fontSize: 10, textAlign: "right", marginTop: 3 },
+  pairingSecondary: { color: palette.muted, fontSize: 10, lineHeight: 17, textAlign: "right" },
+  otpRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, direction: "ltr" },
+  otpSlotWrap: { flexDirection: "row", alignItems: "center" },
+  otpDivider: { width: 10, height: 2, backgroundColor: palette.muted, marginHorizontal: 2 },
+  otpInput: { width: 38, height: 52, borderRadius: 11, borderWidth: 2, borderColor: palette.border, backgroundColor: palette.elevated, color: palette.text, fontSize: 21, fontWeight: "900" },
+  otpFilled: { borderColor: palette.primarySoft, backgroundColor: `${palette.primary}30` },
+  otpFocused: { borderColor: palette.orange },
+  clearCode: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 3 },
+  clearText: { color: palette.muted, fontSize: 11, fontWeight: "800" },
+  pairingLoading: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+  loadingText: { color: palette.primarySoft, fontSize: 11, fontWeight: "800" },
+  successBanner: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 12, backgroundColor: `${palette.success}18`, padding: 10 },
+  successText: { color: palette.success, fontSize: 12, fontWeight: "900" },
 });

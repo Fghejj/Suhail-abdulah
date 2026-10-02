@@ -1,7 +1,7 @@
 export type DeviceStatus = "available" | "active" | "paused" | "finished";
 export type SessionStatus = "completed" | "cancelled";
 export type HistoryFilter = "day" | "week" | "month" | "all";
-export type DisplayConnectionMode = "bluetooth" | "hotspot" | "lan";
+export type DisplayConnectionMode = "bluetooth" | "hotspot" | "lan" | "pairing_code";
 export type DisplayPowerState = "on" | "sleep" | "off" | "restarting";
 export type ScreenType = "samsung" | "lg" | "android_tv" | "sony" | "philips" | "ps4" | "ps5";
 
