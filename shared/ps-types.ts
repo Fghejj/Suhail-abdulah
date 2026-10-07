@@ -16,6 +16,9 @@ export interface DisplayConnection {
   port?: number;
   mac?: string;
   autoStandby?: boolean;
+  bleId?: string;
+  bleServiceUuid?: string;
+  bleCharacteristicUuid?: string;
 }
 
 export interface CurrentSession {

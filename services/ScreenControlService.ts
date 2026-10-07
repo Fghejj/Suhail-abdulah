@@ -1,4 +1,6 @@
 import * as Network from "expo-network";
+import { PermissionsAndroid, Platform } from "react-native";
+import { BleManager, State as BleState, type Device as BleDevice } from "react-native-ble-plx";
 
 export type ScreenType = "samsung" | "lg" | "android_tv" | "sony" | "philips" | "ps4" | "ps5";
 export type ConnectionType = "bluetooth" | "hotspot" | "lan" | "pairing_code";
@@ -17,6 +19,9 @@ export interface ScreenDevice {
   autoStandby?: boolean;
   lastConnected?: string;
   pairingCode?: string;
+  bleId?: string;
+  bleServiceUuid?: string;
+  bleCharacteristicUuid?: string;
 }
 
 export interface ControlResult {
@@ -34,6 +39,91 @@ export interface ControlResult {
  * this service reports that limitation instead of claiming a command was sent.
  */
 export class ScreenControlService {
+  private bleManager: BleManager | null = null;
+  private bleConnections = new Map<string, BleDevice>();
+
+  private getBleManager(): BleManager | null {
+    if (Platform.OS === "web") return null;
+    this.bleManager ??= new BleManager();
+    return this.bleManager;
+  }
+
+  private async ensureBluetoothPermissions(): Promise<boolean> {
+    if (Platform.OS !== "android") return true;
+    const permissions = Platform.Version >= 31
+      ? [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN, PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT]
+      : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
+    const result = await PermissionsAndroid.requestMultiple(permissions);
+    return permissions.every((permission) => result[permission] === PermissionsAndroid.RESULTS.GRANTED);
+  }
+
+  async discoverBluetoothDevices(scanSeconds = 8): Promise<ScreenDevice[]> {
+    const manager = this.getBleManager();
+    if (!(await this.ensureBluetoothPermissions())) throw new Error("اسمح للتطبيق بالوصول إلى الأجهزة القريبة من إعدادات الهاتف");
+    if (!manager) return [];
+    const state = await manager.state();
+    if (state !== BleState.PoweredOn) throw new Error("فعّل Bluetooth ومنح التطبيق صلاحية الأجهزة القريبة");
+    const found = new Map<string, BleDevice>();
+    return await new Promise<ScreenDevice[]>((resolve, reject) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        manager.stopDeviceScan();
+        resolve([...found.values()].map((device) => ({
+          id: `bluetooth-${device.id}`,
+          name: device.name || device.localName || `Bluetooth (${device.id})`,
+          type: "android_tv",
+          ip: "",
+          mac: device.id,
+          bleId: device.id,
+          connectionType: "bluetooth",
+          status: "unknown",
+          lastConnected: new Date().toISOString(),
+        })));
+      };
+      const timer = setTimeout(finish, scanSeconds * 1000);
+      manager.startDeviceScan(null, { allowDuplicates: false }, (error, device) => {
+        if (error) {
+          clearTimeout(timer);
+          manager.stopDeviceScan();
+          if (!settled) { settled = true; reject(error); }
+          return;
+        }
+        if (device?.id) found.set(device.id, device);
+      });
+    });
+  }
+
+  async connectBluetoothDevice(device: ScreenDevice): Promise<ControlResult> {
+    const manager = this.getBleManager();
+    if (!manager || !device.bleId) return this.fail("Bluetooth Native متاح داخل نسخة Android فقط");
+    try {
+      const connected = await manager.connectToDevice(device.bleId, { timeout: 10_000 });
+      const discovered = await connected.discoverAllServicesAndCharacteristics();
+      this.bleConnections.set(device.bleId, discovered);
+      const services = await discovered.services();
+      const characteristics = (await Promise.all(services.map((service) => discovered.characteristicsForService(service.uuid)))).flat();
+      const writable = characteristics.find((characteristic) => characteristic.isWritableWithResponse || characteristic.isWritableWithoutResponse);
+      if (!writable) return this.fail("تم الاقتران، لكن الجهاز لا يعلن قناة Bluetooth قابلة لإرسال أوامر التحكم");
+      return this.ok(`تم الاقتران فعلياً عبر Bluetooth؛ قناة التحكم: ${writable.uuid}`);
+    } catch (error) {
+      return this.fail(`فشل اقتران Bluetooth: ${error instanceof Error ? error.message : "تحقق من قبول الاقتران على الشاشة"}`);
+    }
+  }
+
+  async disconnectBluetoothDevice(device: ScreenDevice): Promise<ControlResult> {
+    const manager = this.getBleManager();
+    if (!manager || !device.bleId) return this.ok("لا يوجد اتصال Bluetooth Native نشط");
+    try {
+      await manager.cancelDeviceConnection(device.bleId);
+      this.bleConnections.delete(device.bleId);
+      return this.ok("تم فصل اتصال Bluetooth");
+    } catch (error) {
+      return this.fail(`تعذر فصل Bluetooth: ${error instanceof Error ? error.message : "خطأ غير معروف"}`);
+    }
+  }
+
   async connectViaPairingCode(code: string, type: ScreenType, ip?: string): Promise<ControlResult> {
     if (!/^\d{8}$/.test(code)) return this.fail("رمز الاقتران يجب أن يتكون من 8 أرقام");
     await new Promise((resolve) => setTimeout(resolve, 900));
@@ -104,6 +194,7 @@ export class ScreenControlService {
 
   async powerOn(device: ScreenDevice): Promise<ControlResult> {
     try {
+      if (device.connectionType === "bluetooth") return this.bluetoothControlUnavailable(device);
       switch (device.type) {
         case "samsung": return await this.samsungControl(device, "on");
         case "lg": return await this.lgControl(device, "on");
@@ -120,6 +211,7 @@ export class ScreenControlService {
 
   async powerOff(device: ScreenDevice): Promise<ControlResult> {
     try {
+      if (device.connectionType === "bluetooth") return this.bluetoothControlUnavailable(device);
       switch (device.type) {
         case "samsung": return await this.samsungControl(device, "off");
         case "lg": return await this.lgControl(device, "off");
@@ -176,6 +268,12 @@ export class ScreenControlService {
   private async androidTVControl(device: ScreenDevice, action: "on" | "off"): Promise<ControlResult> {
     if (action === "on") return this.fail("تشغيل Android TV يحتاج Wake-on-LAN native مع MAC صالح");
     return this.fail(`إطفاء Android TV يحتاج تفعيل ADB على ${device.ip}`);
+  }
+
+  private bluetoothControlUnavailable(device: ScreenDevice): ControlResult {
+    if (Platform.OS === "web") return this.fail("التحكم Bluetooth الحقيقي يحتاج Android Native Build وليس Web Preview");
+    if (!device.bleId) return this.fail("لم يتم حفظ معرّف جهاز Bluetooth؛ أعد البحث والاقتران");
+    return this.fail("تم دعم اكتشاف واقتران Bluetooth، لكن شاشة Android TV لا تعرض بروتوكول طاقة قياسياً عبر GATT؛ يلزم Android TV Remote Protocol عبر Wi‑Fi أو SDK الشركة");
   }
 
   private async sonyControl(device: ScreenDevice, action: "on" | "off"): Promise<ControlResult> {

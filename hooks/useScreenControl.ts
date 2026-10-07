@@ -25,7 +25,11 @@ export function useScreenControl() {
   const discover = useCallback(async () => {
     setDiscovering(true);
     try {
-      const found = await screenControlService.discoverDevices();
+      const results = await Promise.allSettled([
+        screenControlService.discoverDevices(),
+        screenControlService.discoverBluetoothDevices(),
+      ]);
+      const found = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
       setScreens((previous) => {
         const existingIds = new Set(previous.map((screen) => screen.id));
         return [...previous, ...found.filter((screen) => !existingIds.has(screen.id))];

@@ -111,7 +111,15 @@ export function ScreenLinkModal({ visible, consoleId, consoleName, availableScre
     setTimeout(close, 700);
   };
 
-  const selectScreen = (screen: ScreenDevice) => {
+  const selectScreen = async (screen: ScreenDevice) => {
+    if (screen.connectionType === "bluetooth") {
+      setError("");
+      const result = await screenControlService.connectBluetoothDevice(screen);
+      if (!result.success) {
+        setError(result.message);
+        return;
+      }
+    }
     onLink({ ...screen, linkedConsoleId: consoleId, autoStandby });
     close();
   };
@@ -149,7 +157,8 @@ export function ScreenLinkModal({ visible, consoleId, consoleName, availableScre
             {successMessage ? <View style={styles.successBanner}><Ionicons name="checkmark-circle" size={18} color={palette.success} /><Text style={styles.successText}>{successMessage}</Text></View> : null}
             {step === "select" ? <>
               <View style={styles.discoveryHeader}><Text style={styles.sectionTitle}>الشاشات المكتشفة</Text><Pressable disabled={discovering} onPress={onDiscover} style={styles.scanButton}><Ionicons name="scan" size={15} color={palette.primarySoft} /><Text style={styles.scanText}>{discovering ? "جارٍ البحث" : "بحث"}</Text></Pressable></View>
-              {availableScreens.length > 0 ? availableScreens.map((screen) => <Pressable key={screen.id} onPress={() => selectScreen(screen)} style={({ pressed }) => [styles.discoveredItem, pressed && styles.pressed]}><View style={styles.deviceIcon}><Ionicons name="tv-outline" size={19} color={palette.success} /></View><View style={styles.discoveredCopy}><Text style={styles.discoveredName}>{screen.name}</Text><Text style={styles.discoveredMeta}>{screen.ip || "بدون IP"} · {screen.connectionType.toUpperCase()}</Text></View><Ionicons name="chevron-back" size={18} color={palette.muted} /></Pressable>) : <View style={styles.empty}><Ionicons name="search-outline" size={25} color={palette.muted} /><Text style={styles.emptyText}>لم يتم العثور على شاشات بعد</Text></View>}
+              {availableScreens.length > 0 ? availableScreens.map((screen) => <Pressable key={screen.id} onPress={() => { void selectScreen(screen); }} style={({ pressed }) => [styles.discoveredItem, pressed && styles.pressed]}><View style={styles.deviceIcon}><Ionicons name="tv-outline" size={19} color={palette.success} /></View><View style={styles.discoveredCopy}><Text style={styles.discoveredName}>{screen.name}</Text><Text style={styles.discoveredMeta}>{screen.ip || "بدون IP"} · {screen.connectionType.toUpperCase()}</Text></View><Ionicons name="chevron-back" size={18} color={palette.muted} /></Pressable>) : <View style={styles.empty}><Ionicons name="search-outline" size={25} color={palette.muted} /><Text style={styles.emptyText}>لم يتم العثور على شاشات بعد</Text></View>}
+              {error ? <Text style={styles.error}>{error}</Text> : null}
               <Pressable style={styles.manualButton} onPress={() => { setError(""); setStep("manual"); }}><Ionicons name="add-circle-outline" size={19} color={palette.text} /><Text style={styles.manualText}>إضافة شاشة يدوياً</Text></Pressable>
             </> : <>
               <View style={styles.sectionHeader}><Pressable onPress={() => setStep("select")}><Ionicons name="arrow-forward" size={20} color={palette.primarySoft} /></Pressable><Text style={styles.sectionTitle}>بيانات الشاشة</Text></View>
