@@ -1,5 +1,5 @@
 import * as Network from "expo-network";
-import { PermissionsAndroid, Platform } from "react-native";
+import { NativeModules, PermissionsAndroid, Platform } from "react-native";
 import { BleManager, State as BleState, type Device as BleDevice } from "react-native-ble-plx";
 
 export type ScreenType = "samsung" | "lg" | "android_tv" | "sony" | "philips" | "ps4" | "ps5";
@@ -126,9 +126,19 @@ export class ScreenControlService {
 
   async connectViaPairingCode(code: string, type: ScreenType, ip?: string): Promise<ControlResult> {
     if (!/^\d{8}$/.test(code)) return this.fail("رمز الاقتران يجب أن يتكون من 8 أرقام");
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    if (code === "00000000") return this.fail("رمز الاقتران غير صالح");
-    return this.ok(`تم التحقق من رمز الاقتران لشاشة ${type}${ip ? ` (${ip})` : ""} — محاكاة اتصال بانتظار SDK الرسمي`);
+    if (Platform.OS !== "android") return this.fail("التحكم الحقيقي متاح في APK Android فقط؛ معاينة الويب لا تستطيع فتح TLS مع التلفاز");
+    if (type !== "android_tv") return this.fail("رمز الاقتران مدعوم حالياً لشاشات Android TV فقط");
+    if (!ip) return this.fail("أدخل عنوان IP للشاشة المتصلة بنفس شبكة Wi‑Fi");
+    const remote = NativeModules.AndroidTvRemote as {
+      pairWithCode: (host: string, pairingCode: string) => Promise<boolean>;
+    } | undefined;
+    if (!remote?.pairWithCode) return this.fail("لم يتم تضمين Native Android TV Remote في هذه النسخة");
+    try {
+      await remote.pairWithCode(ip, code);
+      return this.ok(`تم الاقتران فعلياً مع Android TV على ${ip} عبر TLS/Protobuf`);
+    } catch (error) {
+      return this.fail(`فشل الاقتران الحقيقي: ${error instanceof Error ? error.message : "تحقق من الرمز وIP وقبول الطلب على الشاشة"}`);
+    }
   }
 
   async getLocalIP(): Promise<string | null> {
@@ -266,8 +276,18 @@ export class ScreenControlService {
   }
 
   private async androidTVControl(device: ScreenDevice, action: "on" | "off"): Promise<ControlResult> {
-    if (action === "on") return this.fail("تشغيل Android TV يحتاج Wake-on-LAN native مع MAC صالح");
-    return this.fail(`إطفاء Android TV يحتاج تفعيل ADB على ${device.ip}`);
+    if (Platform.OS !== "android") return this.fail("التحكم الحقيقي يحتاج APK Android وليس Web Preview");
+    if (!device.ip) return this.fail("لا يوجد IP محفوظ للشاشة");
+    const remote = NativeModules.AndroidTvRemote as {
+      sendKey: (host: string, key: string) => Promise<boolean>;
+    } | undefined;
+    if (!remote?.sendKey) return this.fail("Native Android TV Remote غير متاح في النسخة الحالية");
+    try {
+      await remote.sendKey(device.ip, "POWER");
+      return this.ok(`تم إرسال أمر ${action === "on" ? "التشغيل/الإيقاظ" : "السكون"} فعلياً عبر Android TV Remote v2`);
+    } catch (error) {
+      return this.fail(`تعذر إرسال الأمر عبر TLS: ${error instanceof Error ? error.message : "تحقق من الاقتران"}`);
+    }
   }
 
   private bluetoothControlUnavailable(device: ScreenDevice): ControlResult {
