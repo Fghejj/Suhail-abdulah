@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 
 import type { Device } from "@shared/ps-types";
@@ -14,12 +14,30 @@ import { filterSessions, formatMoney, totalRevenue } from "@/lib/formatters";
 import { triggerSessionFeedback } from "@/lib/platform-feedback";
 import { useSessionTicker, useStore } from "@/lib/store";
 import { useScreenControl } from "@/hooks/useScreenControl";
+import type { ControlResult, ScreenDevice } from "@/services/ScreenControlService";
 
 export default function HomeScreen() {
   useSessionTicker();
   const { width } = useWindowDimensions();
   const { devices, sessions, settings, hydrated, addDevice, renameDevice, recolorDevice, deleteDevice, startSession, endSession, addTime, pauseSession, resumeSession, restartSession, connectDisplay, disconnectDisplay, setDisplayPower } = useStore();
-  const { screens, discovering, discover, wakeOnSessionStart, autoStandbyAfterSession } = useScreenControl();
+  const savedScreens = useMemo<ScreenDevice[]>(() => devices.flatMap((device) => {
+    const connection = device.displayConnection;
+    if (!connection) return [];
+    return [{
+      id: connection.screenId ?? `stored-${device.id}`,
+      name: connection.label,
+      type: connection.screenType ?? "android_tv",
+      ip: connection.ip ?? connection.endpoint ?? "",
+      port: connection.port,
+      mac: connection.mac,
+      connectionType: connection.mode,
+      status: device.displayPower === "on" ? "on" : device.displayPower === "sleep" ? "standby" : "unknown",
+      linkedConsoleId: device.id,
+      autoStandby: connection.autoStandby ?? settings.autoSleepConnectedDisplays,
+      lastConnected: new Date(connection.connectedAt).toISOString(),
+    } satisfies ScreenDevice];
+  }), [devices, settings.autoSleepConnectedDisplays]);
+  const { screens, discovering, loading: screenLoading, lastResult: screenLastResult, discover, registerScreen, wakeOnSessionStart, autoStandbyAfterSession, powerOn, standby, powerOff, restart: restartDisplay } = useScreenControl(savedScreens);
   const [selectedDevice, setSelectedDevice] = useState<Device>();
   const [paymentMode, setPaymentMode] = useState<"start" | "extend">("start");
   const [showPayment, setShowPayment] = useState(false);
@@ -28,6 +46,7 @@ export default function HomeScreen() {
   const [showDisplayConnection, setShowDisplayConnection] = useState(false);
   const [showScreenLink, setShowScreenLink] = useState(false);
   const [linkTarget, setLinkTarget] = useState<Device>();
+  const [displayResult, setDisplayResult] = useState<ControlResult | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Device>();
   const seenSessions = useRef(new Set<string>());
 
@@ -58,6 +77,7 @@ export default function HomeScreen() {
 
   const openDisplayConnection = (device: Device) => {
     setSelectedDevice(device);
+    setDisplayResult(null);
     setShowDisplayConnection(true);
   };
 
@@ -66,6 +86,27 @@ export default function HomeScreen() {
     if (!target) return;
     setLinkTarget(target);
     setShowScreenLink(true);
+  };
+
+  const screenForDevice = (device: Device): ScreenDevice | null => {
+    const screen = screens.find((item) => item.linkedConsoleId === device.id || item.id === device.displayConnection?.screenId);
+    if (screen) return screen;
+    const connection = device.displayConnection;
+    if (!connection) return null;
+    return savedScreens.find((item) => item.linkedConsoleId === device.id) ?? null;
+  };
+
+  const handleDisplayPower = async (power: "on" | "sleep" | "off" | "restart") => {
+    if (!selectedDevice) return;
+    const screen = screenForDevice(selectedDevice);
+    if (!screen) {
+      setDisplayResult({ success: false, verified: false, code: "SCREEN_NOT_FOUND", message: "لا توجد بيانات شاشة محفوظة؛ أعد ربط الشاشة عبر Android TV وIP ورمز الاقتران", timestamp: new Date().toISOString() });
+      return;
+    }
+    const result = power === "on" ? await powerOn(screen) : power === "sleep" ? await standby(screen) : power === "off" ? await powerOff(screen) : await restartDisplay(screen);
+    setDisplayResult(result);
+    // Do not claim a power state from a packet-only result. Store state changes only after verified APIs.
+    if (result.success && result.verified !== false) setDisplayPower(selectedDevice.id, power);
   };
 
   if (!hydrated) {
@@ -95,8 +136,8 @@ export default function HomeScreen() {
       <PaymentModal key={`${selectedDevice?.id ?? "none"}-${paymentMode}-${showPayment}`} visible={showPayment} device={selectedDevice} settings={settings} mode={paymentMode} onClose={() => setShowPayment(false)} onConfirm={async (amount, minutes) => { if (selectedDevice) { if (paymentMode === "start") { await wakeOnSessionStart(selectedDevice.id); startSession(selectedDevice.id, { amount, minutes }); } else addTime(selectedDevice.id, { amount, minutes }); } setShowPayment(false); }} />
       <InputModal key={`add-${showAdd}`} visible={showAdd} title="إضافة جهاز جديد" label="اسم الجهاز" placeholder={`مثال: جهاز ${devices.length + 1}`} confirmLabel="إضافة الجهاز" onClose={() => setShowAdd(false)} onConfirm={(name) => addDevice(name)} />
       <DeviceOptionsModal key={`${selectedDevice?.id ?? "none"}-${showOptions}`} visible={showOptions} device={selectedDevice} onClose={() => setShowOptions(false)} onRename={(name) => { if (selectedDevice) renameDevice(selectedDevice.id, name); }} onColor={(color) => { if (selectedDevice) recolorDevice(selectedDevice.id, color); }} onDelete={() => { if (selectedDevice) setConfirmDelete(selectedDevice); setShowOptions(false); }} />
-      <DisplayConnectionModal visible={showDisplayConnection} device={selectedDevice} onClose={() => setShowDisplayConnection(false)} onConnect={(mode) => { if (selectedDevice) connectDisplay(selectedDevice.id, mode); }} onDisconnect={() => { if (selectedDevice) disconnectDisplay(selectedDevice.id); }} onPower={(power) => { if (selectedDevice) setDisplayPower(selectedDevice.id, power); }} />
-      <ScreenLinkModal visible={showScreenLink} consoleId={linkTarget?.id ?? ""} consoleName={linkTarget?.name ?? ""} availableScreens={screens} discovering={discovering} onDiscover={() => { void discover(); }} onLink={(screen) => { if (linkTarget) connectDisplay(linkTarget.id, screen.connectionType, screen); }} onClose={() => setShowScreenLink(false)} />
+      <DisplayConnectionModal visible={showDisplayConnection} device={selectedDevice} busy={screenLoading} controlResult={displayResult ?? screenLastResult} onClose={() => setShowDisplayConnection(false)} onConnect={() => { setShowDisplayConnection(false); openScreenLink(selectedDevice); }} onDisconnect={() => { if (selectedDevice) disconnectDisplay(selectedDevice.id); }} onPower={(power) => { void handleDisplayPower(power); }} />
+      <ScreenLinkModal visible={showScreenLink} consoleId={linkTarget?.id ?? ""} consoleName={linkTarget?.name ?? ""} availableScreens={screens} discovering={discovering} onDiscover={() => { void discover(); }} onLink={(screen) => { registerScreen(screen); if (linkTarget) connectDisplay(linkTarget.id, screen.connectionType, screen); }} onClose={() => setShowScreenLink(false)} />
       <ConfirmModal visible={!!confirmDelete} title="حذف الجهاز؟" message={`سيتم حذف ${confirmDelete?.name ?? "الجهاز"} من الشبكة. السجل السابق سيبقى محفوظاً.`} onClose={() => setConfirmDelete(undefined)} onConfirm={() => { if (confirmDelete) deleteDevice(confirmDelete.id); setConfirmDelete(undefined); }} />
     </Page>
   );

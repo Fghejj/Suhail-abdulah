@@ -105,7 +105,7 @@ export function ScreenLinkModal({ visible, consoleId, consoleName, availableScre
       setTimeout(() => inputRefs.current[0]?.focus(), 50);
       return;
     }
-    onLink({ id: `pairing-${selectedType}-${code}`, name: name.trim() || `${selectedType} · ${code}`, type: selectedType, ip: ip.trim(), connectionType: "pairing_code", status: "on", linkedConsoleId: consoleId, autoStandby, pairingCode: code });
+    onLink({ id: `pairing-${selectedType}-${ip.trim()}`, name: name.trim() || `${selectedType} · ${ip.trim()}`, type: selectedType, ip: ip.trim(), connectionType: "pairing_code", status: "unknown", linkedConsoleId: consoleId, autoStandby });
     setSuccessMessage("تم ربط الشاشة بنجاح");
     setPairingLoading(false);
     setTimeout(close, 700);
@@ -172,7 +172,7 @@ export function ScreenLinkModal({ visible, consoleId, consoleName, availableScre
                 <View style={styles.otpRow}>{pairingCode.map((digit, index) => <View key={index} style={styles.otpSlotWrap}>{index === 4 ? <View style={styles.otpDivider} /> : null}<TextInput ref={(ref) => { inputRefs.current[index] = ref; }} value={digit} onFocus={() => setFocusedIndex(index)} onChangeText={(value) => updatePairingDigit(index, value)} onKeyPress={({ nativeEvent }) => handlePairingKey(index, nativeEvent.key)} keyboardType="number-pad" maxLength={1} editable={!pairingLoading} selectTextOnFocus style={[styles.otpInput, focusedIndex === index ? styles.otpFocused : null, digit ? styles.otpFilled : null]} textAlign="center" /> </View>)}</View>
                 <Pressable disabled={pairingLoading} onPress={clearPairingCode} style={styles.clearCode}><Ionicons name="trash-outline" size={15} color={palette.muted} /><Text style={styles.clearText}>مسح الكل</Text></Pressable>
                 {pairingLoading ? <View style={styles.pairingLoading}><ActivityIndicator color={palette.primarySoft} /><Text style={styles.loadingText}>جارٍ التحقق والاتصال...</Text></View> : null}
-                {ip.trim() ? null : <TextInput value={ip} onChangeText={setIp} placeholder="عنوان IP اختياري" placeholderTextColor={palette.muted} keyboardType="numeric" autoCapitalize="none" editable={!pairingLoading} style={styles.input} textAlign="right" />}
+                <TextInput value={ip} onChangeText={setIp} placeholder="عنوان IP الشاشة (مطلوب للاتصال الحقيقي)" placeholderTextColor={palette.muted} keyboardType="numeric" autoCapitalize="none" editable={!pairingLoading} style={styles.input} textAlign="right" />
               </View> : null}
               <Text style={styles.fieldLabel}>معلومات اختيارية</Text>
               <TextInput value={name} onChangeText={setName} placeholder="اسم الشاشة" placeholderTextColor={palette.muted} editable={!pairingLoading} style={styles.input} textAlign="right" />

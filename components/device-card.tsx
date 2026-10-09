@@ -38,8 +38,8 @@ export function DeviceCard({ device, onStart, onEnd, onExtend, onPause, onResume
       </View>
 
       <Pressable onPress={onDisplay} style={({ pressed }) => [styles.displayLink, pressed && styles.pressed]}>
-        <Ionicons name={device.displayConnection ? (device.displayPower === "sleep" ? "moon" : "tv") : "tv-outline"} size={14} color={device.displayConnection ? palette.success : palette.primarySoft} />
-        <Text style={[styles.displayLinkText, { color: device.displayConnection ? palette.success : palette.primarySoft }]}>{device.displayConnection ? `الشاشة: ${device.displayPower === "sleep" ? "سكون" : device.displayPower === "off" ? "متوقفة" : device.displayPower === "restarting" ? "إعادة تشغيل" : "تعمل"}` : "ربط شاشة البلايستيشن"}</Text>
+        <Ionicons name={device.displayConnection ? (device.displayPower === "sleep" ? "moon" : device.displayPower === "unknown" ? "help-circle-outline" : "tv") : "tv-outline"} size={14} color={device.displayConnection ? (device.displayPower === "unknown" ? palette.warning : palette.success) : palette.primarySoft} />
+        <Text style={[styles.displayLinkText, { color: device.displayConnection ? (device.displayPower === "unknown" ? palette.warning : palette.success) : palette.primarySoft }]}>{device.displayConnection ? `الشاشة: ${device.displayPower === "sleep" ? "سكون" : device.displayPower === "off" ? "متوقفة" : device.displayPower === "restarting" ? "إعادة تشغيل" : device.displayPower === "unknown" ? "غير مؤكدة" : "تعمل"}` : "ربط شاشة البلايستيشن"}</Text>
       </Pressable>
 
       <View style={styles.timerBlock}>

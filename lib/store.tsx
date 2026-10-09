@@ -91,7 +91,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (raw) {
           try {
             const saved = JSON.parse(raw) as AppSnapshot;
-            setSnapshot({ ...createSeedSnapshot(), ...saved, devices: (saved.devices ?? []).map((device, index) => ({ ...makeDevice(index, Date.now()), ...device, displayPower: device.displayPower ?? "on" })), settings: { ...defaultSettings, ...saved.settings } });
+            setSnapshot({ ...createSeedSnapshot(), ...saved, devices: (saved.devices ?? []).map((device, index) => ({ ...makeDevice(index, Date.now()), ...device, displayPower: device.displayPower ?? "unknown" })), settings: { ...defaultSettings, ...saved.settings } });
           } catch {
             setSnapshot(createSeedSnapshot());
           }
@@ -149,7 +149,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const labels: Record<DisplayConnectionMode, string> = { bluetooth: "بلوتوث", hotspot: "نقطة اتصال", lan: "LAN / IP", pairing_code: "رمز الاقتران" };
     setSnapshot((current) => ({
       ...current,
-      devices: current.devices.map((device) => device.id === deviceId ? { ...device, displayConnection: { screenId: details?.id, mode, label: details?.name ?? labels[mode], connectedAt: Date.now(), endpoint: details?.ip, screenType: details?.type, ip: details?.ip, port: details?.port, mac: details?.mac, autoStandby: details?.autoStandby ?? true }, displayPower: "on" } : device),
+      devices: current.devices.map((device) => device.id === deviceId ? { ...device, displayConnection: { screenId: details?.id, mode, label: details?.name ?? labels[mode], connectedAt: Date.now(), endpoint: details?.ip, screenType: details?.type, ip: details?.ip, port: details?.port, mac: details?.mac, autoStandby: details?.autoStandby ?? true }, displayPower: "unknown" } : device),
     }));
   }, []);
 
@@ -188,7 +188,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ...current,
       devices: current.devices.map((device) =>
         device.id === deviceId
-          ? { ...device, status: "active", currentSession: session, lastAmount: input.amount, lastDurationMinutes: input.minutes, displayPower: device.displayConnection ? "on" : device.displayPower }
+          ? { ...device, status: "active", currentSession: session, lastAmount: input.amount, lastDurationMinutes: input.minutes, displayPower: device.displayConnection ? "unknown" : device.displayPower }
           : device,
       ),
     }));
@@ -203,7 +203,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return {
         ...current,
         sessions: [...current.sessions, { id: completed.id, deviceId: device.id, deviceName: device.name, durationMinutes: completed.durationMinutes, amountPaid: completed.amountPaid, startTime: completed.startedAt, endTime: now, status: "completed" as const }],
-        devices: current.devices.map((item) => item.id === deviceId ? { ...item, status: "finished" as const, currentSession: undefined, lastAmount: completed.amountPaid, lastDurationMinutes: completed.durationMinutes, displayPower: current.settings.autoSleepConnectedDisplays && item.displayConnection ? "sleep" : item.displayPower } : item),
+        devices: current.devices.map((item) => item.id === deviceId ? { ...item, status: "finished" as const, currentSession: undefined, lastAmount: completed.amountPaid, lastDurationMinutes: completed.durationMinutes, displayPower: item.displayConnection ? "unknown" : item.displayPower } : item),
       };
     });
   }, []);
@@ -274,7 +274,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         endAt: now + minutes * 60_000,
         remainingSeconds: minutes * 60,
       };
-      return { ...current, devices: current.devices.map((item) => item.id === deviceId ? { ...item, status: "active", currentSession: session, displayPower: item.displayConnection ? "on" : item.displayPower } : item) };
+      return { ...current, devices: current.devices.map((item) => item.id === deviceId ? { ...item, status: "active", currentSession: session, displayPower: item.displayConnection ? "unknown" : item.displayPower } : item) };
     });
   }, []);
 
@@ -299,7 +299,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             endTime: now,
             status: "completed" as const,
           }];
-          return { ...device, status: "finished" as const, lastAmount: completed.amountPaid, lastDurationMinutes: completed.durationMinutes, currentSession: undefined, displayPower: current.settings.autoSleepConnectedDisplays && device.displayConnection ? "sleep" : device.displayPower };
+          return { ...device, status: "finished" as const, lastAmount: completed.amountPaid, lastDurationMinutes: completed.durationMinutes, currentSession: undefined, displayPower: device.displayConnection ? "unknown" : device.displayPower };
         }
         if (remaining !== device.currentSession.remainingSeconds) {
           changed = true;
