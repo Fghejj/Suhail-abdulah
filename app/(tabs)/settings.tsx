@@ -13,7 +13,7 @@ function SettingRow({ icon, title, description, value, onValueChange }: { icon: 
 }
 
 export default function SettingsScreen() {
-  const { devices, sessions, settings, addDevice, updateSettings, resetDailyRevenue, clearAllData } = useStore();
+  const { devices, sessions, settings, syncStatus, addDevice, updateSettings, resetDailyRevenue, clearAllData } = useStore();
   const [price, setPrice] = useState(String(settings.pricePerMinute));
   const [offerAmount, setOfferAmount] = useState(String(settings.specialOfferAmount));
   const [offerMinutes, setOfferMinutes] = useState(String(settings.specialOfferMinutes));
@@ -27,6 +27,10 @@ export default function SettingsScreen() {
   return (
     <Page>
       <AppHeader title="الإعدادات" subtitle="اضبط التسعير وسلوك التطبيق" action={<View style={styles.headerIcon}><Ionicons name="options" size={18} color={palette.primarySoft} /></View>} />
+      <View style={[styles.syncBanner, syncStatus === "error" ? styles.syncError : syncStatus === "synced" ? styles.syncOk : undefined]}>
+        <Ionicons name={syncStatus === "synced" ? "cloud-done-outline" : syncStatus === "error" ? "cloud-offline-outline" : "cloud-outline"} size={16} color={syncStatus === "error" ? palette.danger : palette.primarySoft} />
+        <Text style={styles.syncText}>{syncStatus === "synced" ? "البيانات محفوظة على الخادم" : syncStatus === "local" ? "وضع محلي: سجّل الدخول لتفعيل الحفظ الدائم" : syncStatus === "error" ? "تعذر حفظ آخر تغيير على الخادم" : "جارٍ مزامنة البيانات..."}</Text>
+      </View>
       <SectionTitle title="التسعير" />
       <Panel style={styles.panelGap}>
         <View style={styles.fieldRow}><View style={styles.fieldInfo}><Text style={styles.fieldTitle}>سعر الدقيقة</Text><Text style={styles.fieldHint}>التسعير الافتراضي للجلسات التلقائية</Text></View><View style={styles.inputWrap}><TextInput value={price} onChangeText={setPrice} onEndEditing={commitPrice} keyboardType="decimal-pad" style={styles.smallInput} textAlign="center" /><Text style={styles.inputSuffix}>ر.س</Text></View></View>
@@ -53,6 +57,10 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   headerIcon: { width: 40, height: 40, borderRadius: 14, backgroundColor: `${palette.primary}22`, alignItems: "center", justifyContent: "center" },
+  syncBanner: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 7, borderRadius: 12, borderWidth: 1, borderColor: `${palette.border}88`, backgroundColor: `${palette.elevated}99`, padding: 10, marginBottom: 12 },
+  syncOk: { borderColor: `${palette.success}66` },
+  syncError: { borderColor: `${palette.danger}66`, backgroundColor: `${palette.danger}10` },
+  syncText: { color: palette.muted, fontSize: 11, textAlign: "right" },
   panelGap: { gap: 2, marginBottom: 8 },
   settingRow: { flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 11 },
   settingCopy: { flex: 1 },

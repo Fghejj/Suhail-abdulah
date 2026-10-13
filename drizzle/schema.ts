@@ -25,4 +25,12 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+/** Durable versioned application state owned by one authenticated user. */
+export const appSnapshots = mysqlTable("appSnapshots", {
+  ownerOpenId: varchar("ownerOpenId", { length: 64 }).primaryKey(),
+  snapshot: text("snapshot").notNull(),
+  version: int("version").default(1).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AppSnapshotRow = typeof appSnapshots.$inferSelect;

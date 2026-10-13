@@ -1,7 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useCallback, useContext, useEffect, useMemo, useState, createContext, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, createContext, type ReactNode } from "react";
 
 import type { AppSettings, AppSnapshot, CurrentSession, Device, DisplayConnectionMode, DisplayPowerState, ScreenType, SessionInput } from "@shared/ps-types";
+import { trpc } from "@/lib/trpc";
 
 const STORAGE_KEY = "@ps-store-manager/snapshot:v1";
 const DEVICE_COLORS = ["#6C2BD9", "#2563EB", "#DB2777", "#0891B2", "#16A34A", "#CA8A04"];
@@ -28,35 +29,20 @@ const makeDevice = (index: number, now: number): Device => ({
   displayPower: "on",
 });
 
-export const createSeedSnapshot = (): AppSnapshot => {
-  const now = Date.now();
-  const sampleSessions = [
-    {
-      id: "seed-session-1",
-      deviceId: "device-1",
-      deviceName: "جهاز 1",
-      durationMinutes: 30,
-      amountPaid: 200,
-      startTime: now - 3 * 60 * 60 * 1000,
-      endTime: now - 2.5 * 60 * 60 * 1000,
-      status: "completed" as const,
-    },
-    {
-      id: "seed-session-2",
-      deviceId: "device-2",
-      deviceName: "جهاز 2",
-      durationMinutes: 20,
-      amountPaid: 200,
-      startTime: now - 90 * 60 * 1000,
-      endTime: now - 70 * 60 * 1000,
-      status: "completed" as const,
-    },
-  ];
-  return { devices: [makeDevice(0, now), makeDevice(1, now)], sessions: sampleSessions, settings: defaultSettings };
-};
+export const createEmptySnapshot = (): AppSnapshot => ({ devices: [], sessions: [], settings: { ...defaultSettings } });
+
+const isLegacyDemoSnapshot = (value: AppSnapshot) => value.sessions.length > 0 && value.sessions.every((session) => session.id.startsWith("seed-session-"));
+const persistenceSignature = (value: AppSnapshot) => JSON.stringify({
+  ...value,
+  devices: value.devices.map((device) => ({
+    ...device,
+    currentSession: device.currentSession ? { ...device.currentSession, remainingSeconds: 0 } : undefined,
+  })),
+});
 
 interface StoreValue extends AppSnapshot {
   hydrated: boolean;
+  syncStatus: "loading" | "synced" | "local" | "error";
   addDevice: (name?: string) => void;
   renameDevice: (id: string, name: string) => void;
   recolorDevice: (id: string, color: string) => void;
@@ -80,8 +66,16 @@ interface StoreValue extends AppSnapshot {
 const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [snapshot, setSnapshot] = useState<AppSnapshot>(createSeedSnapshot);
+  const authQuery = trpc.auth.me.useQuery();
+  const remoteSnapshotQuery = trpc.store.getSnapshot.useQuery(undefined, { enabled: Boolean(authQuery.data), retry: false });
+  const saveSnapshotMutation = trpc.store.saveSnapshot.useMutation();
+  const clearSnapshotMutation = trpc.store.clearSnapshot.useMutation();
+  const [snapshot, setSnapshot] = useState<AppSnapshot>(createEmptySnapshot);
   const [hydrated, setHydrated] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<StoreValue["syncStatus"]>("loading");
+  const saveQueue = useRef(Promise.resolve());
+  const localSnapshotRef = useRef<AppSnapshot | null>(null);
+  const lastPersistedSignature = useRef("");
 
   useEffect(() => {
     let mounted = true;
@@ -91,9 +85,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (raw) {
           try {
             const saved = JSON.parse(raw) as AppSnapshot;
-            setSnapshot({ ...createSeedSnapshot(), ...saved, devices: (saved.devices ?? []).map((device, index) => ({ ...makeDevice(index, Date.now()), ...device, displayPower: device.displayPower ?? "unknown" })), settings: { ...defaultSettings, ...saved.settings } });
+            setSnapshot({ ...createEmptySnapshot(), ...saved, devices: (saved.devices ?? []).map((device, index) => ({ ...makeDevice(index, Date.now()), ...device, displayPower: device.displayPower ?? "unknown" })), settings: { ...defaultSettings, ...saved.settings } });
+            localSnapshotRef.current = saved;
           } catch {
-            setSnapshot(createSeedSnapshot());
+            setSnapshot(createEmptySnapshot());
           }
         }
         setHydrated(true);
@@ -107,7 +102,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hydrated) return;
     void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-  }, [snapshot, hydrated]);
+    if (!authQuery.data || syncStatus === "loading") return;
+    const signature = persistenceSignature(snapshot);
+    if (signature === lastPersistedSignature.current) return;
+    lastPersistedSignature.current = signature;
+    saveQueue.current = saveQueue.current
+      .then(() => saveSnapshotMutation.mutateAsync({ snapshot }))
+      .then(() => setSyncStatus("synced"))
+      .catch(() => setSyncStatus("error"));
+  }, [snapshot, hydrated, authQuery.data, saveSnapshotMutation]);
+
+  useEffect(() => {
+    if (!authQuery.isFetched) return;
+    if (!authQuery.data) {
+      setSyncStatus("local");
+      return;
+    }
+    if (!remoteSnapshotQuery.isFetched) return;
+    if (remoteSnapshotQuery.error) {
+      setSyncStatus("error");
+      return;
+    }
+    if (remoteSnapshotQuery.data?.snapshot) {
+      lastPersistedSignature.current = persistenceSignature(remoteSnapshotQuery.data.snapshot as AppSnapshot);
+      setSnapshot(remoteSnapshotQuery.data.snapshot as AppSnapshot);
+    } else if (localSnapshotRef.current && !isLegacyDemoSnapshot(localSnapshotRef.current)) {
+      saveQueue.current = saveQueue.current
+        .then(() => saveSnapshotMutation.mutateAsync({ snapshot: localSnapshotRef.current as AppSnapshot }))
+        .then(() => undefined)
+        .catch(() => setSyncStatus("error"));
+    }
+    setSyncStatus("synced");
+  }, [authQuery.data, authQuery.isFetched, remoteSnapshotQuery.data, remoteSnapshotQuery.error, remoteSnapshotQuery.isFetched, saveSnapshotMutation]);
 
   const addDevice = useCallback((name?: string) => {
     setSnapshot((current) => {
@@ -322,15 +348,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearAllData = useCallback(() => {
-    const now = Date.now();
-    setSnapshot({ devices: [makeDevice(0, now), makeDevice(1, now)], sessions: [], settings: defaultSettings });
-  }, []);
+    setSnapshot(createEmptySnapshot());
+    if (authQuery.data) {
+      saveQueue.current = saveQueue.current
+        .then(() => clearSnapshotMutation.mutateAsync())
+        .then(() => undefined)
+        .catch(() => setSyncStatus("error"));
+    }
+  }, [authQuery.data, clearSnapshotMutation]);
 
   const deleteHistory = useCallback(() => setSnapshot((current) => ({ ...current, sessions: [] })), []);
 
   const value = useMemo<StoreValue>(() => ({
     ...snapshot,
     hydrated,
+    syncStatus,
     addDevice,
     renameDevice,
     recolorDevice,
@@ -349,7 +381,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     resetDailyRevenue,
     clearAllData,
     deleteHistory,
-  }), [snapshot, hydrated, addDevice, renameDevice, recolorDevice, deleteDevice, connectDisplay, disconnectDisplay, setDisplayPower, startSession, endSession, addTime, pauseSession, resumeSession, restartSession, tick, updateSettings, resetDailyRevenue, clearAllData, deleteHistory]);
+  }), [snapshot, hydrated, syncStatus, addDevice, renameDevice, recolorDevice, deleteDevice, connectDisplay, disconnectDisplay, setDisplayPower, startSession, endSession, addTime, pauseSession, resumeSession, restartSession, tick, updateSettings, resetDailyRevenue, clearAllData, deleteHistory]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

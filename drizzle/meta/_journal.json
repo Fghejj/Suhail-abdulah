@@ -8,6 +8,13 @@
       "when": 1763372440610,
       "tag": "0000_elite_eternals",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791919400000,
+      "tag": "0001_real_store",
+      "breakpoints": true
     }
   ]
 }

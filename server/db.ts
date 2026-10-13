@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { appSnapshots, InsertUser, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +89,23 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function getAppSnapshot(ownerOpenId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not configured");
+  const result = await db.select().from(appSnapshots).where(eq(appSnapshots.ownerOpenId, ownerOpenId)).limit(1);
+  return result[0];
+}
+
+export async function saveAppSnapshot(ownerOpenId: string, snapshot: string, version = 1) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not configured");
+  await db.insert(appSnapshots).values({ ownerOpenId, snapshot, version }).onDuplicateKeyUpdate({
+    set: { snapshot, version, updatedAt: new Date() },
+  });
+}
+
+export async function deleteAppSnapshot(ownerOpenId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not configured");
+  await db.delete(appSnapshots).where(eq(appSnapshots.ownerOpenId, ownerOpenId));
+}
