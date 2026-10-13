@@ -1,0 +1,5 @@
+plugins { id 'com.android.application' }
+
+android { namespace 'com.starsat.sleepcompanion'; compileSdk 35
+    defaultConfig { applicationId 'com.starsat.sleepcompanion'; minSdk 26; targetSdk 35; versionCode 1; versionName '0.1.0' }
+}

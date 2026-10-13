@@ -7,6 +7,7 @@ import { ConfirmModal, InputModal } from "@/components/input-modal";
 import { formatMoney } from "@/lib/formatters";
 import { shareText } from "@/lib/platform-feedback";
 import { useStore } from "@/lib/store";
+import { discoverStarSatCompanion, pairStarSatCompanion, sleepWithStarSatCompanion, type CompanionResult } from "@/services/StarSatCompanionService";
 
 function SettingRow({ icon, title, description, value, onValueChange }: { icon: keyof typeof Ionicons.glyphMap; title: string; description: string; value: boolean; onValueChange: (value: boolean) => void }) {
   return <View style={styles.settingRow}><Switch value={value} onValueChange={onValueChange} trackColor={{ false: palette.border, true: `${palette.primarySoft}88` }} thumbColor={value ? palette.primarySoft : palette.muted} /><View style={styles.settingCopy}><Text style={styles.settingTitle}>{title}</Text><Text style={styles.settingDescription}>{description}</Text></View><View style={styles.settingIcon}><Ionicons name={icon} size={18} color={palette.primarySoft} /></View></View>;
@@ -19,6 +20,12 @@ export default function SettingsScreen() {
   const [offerMinutes, setOfferMinutes] = useState(String(settings.specialOfferMinutes));
   const [showAdd, setShowAdd] = useState(false);
   const [confirmType, setConfirmType] = useState<"daily" | "all">();
+  const [companionHost, setCompanionHost] = useState("");
+  const [companionPort, setCompanionPort] = useState("0");
+  const [companionPin, setCompanionPin] = useState("");
+  const [companionToken, setCompanionToken] = useState("");
+  const [companionFingerprint, setCompanionFingerprint] = useState("");
+  const [companionStatus, setCompanionStatus] = useState("غير متصل");
 
   const backup = () => void shareText("ps-store-backup.json", JSON.stringify({ devices, sessions, settings }, null, 2));
   const commitPrice = () => { const value = Number(price); if (value > 0) updateSettings({ pricePerMinute: value }); };
@@ -31,6 +38,16 @@ export default function SettingsScreen() {
         <Ionicons name={syncStatus === "synced" ? "cloud-done-outline" : syncStatus === "error" ? "cloud-offline-outline" : "cloud-outline"} size={16} color={syncStatus === "error" ? palette.danger : palette.primarySoft} />
         <Text style={styles.syncText}>{syncStatus === "synced" ? "البيانات محفوظة على الخادم" : syncStatus === "local" ? "وضع محلي: سجّل الدخول لتفعيل الحفظ الدائم" : syncStatus === "error" ? "تعذر حفظ آخر تغيير على الخادم" : "جارٍ مزامنة البيانات..."}</Text>
       </View>
+      <SectionTitle title="StarSat Sleep Companion" />
+      <Panel style={styles.panelGap}>
+        <Text style={styles.fieldHint}>اتصال منفصل للسكون فقط؛ لا يغيّر أمر الطاقة القديم ولا يعلن نجاحًا دون تحقق الشاشة.</Text>
+        <View style={styles.companionInputs}><TextInput value={companionHost} onChangeText={setCompanionHost} placeholder="IP الشاشة" placeholderTextColor={palette.muted} style={styles.companionInput} autoCapitalize="none" /><TextInput value={companionPort} onChangeText={setCompanionPort} placeholder="المنفذ" placeholderTextColor={palette.muted} style={styles.portInput} keyboardType="number-pad" /></View>
+        <TextInput value={companionPin} onChangeText={setCompanionPin} placeholder="رمز الاقتران الظاهر على StarSat" placeholderTextColor={palette.muted} style={styles.companionInput} keyboardType="number-pad" />
+        <TextInput value={companionToken} onChangeText={setCompanionToken} placeholder="Token بعد الاقتران" placeholderTextColor={palette.muted} style={styles.companionInput} autoCapitalize="none" />
+        <TextInput value={companionFingerprint} onChangeText={setCompanionFingerprint} placeholder="بصمة TLS بعد الاقتران" placeholderTextColor={palette.muted} style={styles.companionInput} autoCapitalize="none" />
+        <Text style={styles.companionStatus}>{companionStatus}</Text>
+        <View style={styles.companionActions}><ActionButton label="اكتشاف" icon="search-outline" tone="secondary" onPress={() => void (async () => { try { const result = await discoverStarSatCompanion(); setCompanionHost(result.host); setCompanionPort(String(result.port)); setCompanionStatus(`تم العثور على ${result.name}`); } catch (error) { setCompanionStatus(error instanceof Error ? error.message : "لم يتم العثور على المرافق"); } })()} /><ActionButton label="اقتران" icon="link-outline" tone="secondary" onPress={() => void (async () => { try { const result = await pairStarSatCompanion(companionHost, Number(companionPort), companionPin); if (result.status !== "PAIRED" || !result.token || !result.fingerprint) throw new Error(result.reason ?? "فشل الاقتران"); setCompanionToken(result.token); setCompanionFingerprint(result.fingerprint); setCompanionStatus("تم الاقتران؛ لم يتم اختبار قدرة السكون بعد"); } catch (error) { setCompanionStatus(error instanceof Error ? error.message : "تعذر الاقتران"); } })()} /><ActionButton label="سكون الشاشة" icon="moon-outline" tone="primary" onPress={() => void (async () => { try { const result: CompanionResult = await sleepWithStarSatCompanion(companionHost, Number(companionPort), companionToken, companionFingerprint); setCompanionStatus(result.status === "VERIFIED_SLEEP" ? "تم التحقق من تنفيذ السكون" : result.reason ? `${result.status}: ${result.reason}` : result.status); } catch (error) { setCompanionStatus(error instanceof Error ? error.message : "تعذر تنفيذ السكون"); } })()} /></View>
+      </Panel>
       <SectionTitle title="التسعير" />
       <Panel style={styles.panelGap}>
         <View style={styles.fieldRow}><View style={styles.fieldInfo}><Text style={styles.fieldTitle}>سعر الدقيقة</Text><Text style={styles.fieldHint}>التسعير الافتراضي للجلسات التلقائية</Text></View><View style={styles.inputWrap}><TextInput value={price} onChangeText={setPrice} onEndEditing={commitPrice} keyboardType="decimal-pad" style={styles.smallInput} textAlign="center" /><Text style={styles.inputSuffix}>ر.س</Text></View></View>
@@ -61,6 +78,11 @@ const styles = StyleSheet.create({
   syncOk: { borderColor: `${palette.success}66` },
   syncError: { borderColor: `${palette.danger}66`, backgroundColor: `${palette.danger}10` },
   syncText: { color: palette.muted, fontSize: 11, textAlign: "right" },
+  companionInputs: { flexDirection: "row", gap: 8 },
+  companionInput: { height: 40, borderRadius: 10, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.elevated, color: palette.text, paddingHorizontal: 10, textAlign: "right", marginTop: 8, flex: 1 },
+  portInput: { width: 78, height: 40, borderRadius: 10, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.elevated, color: palette.text, paddingHorizontal: 8, textAlign: "center", marginTop: 8 },
+  companionStatus: { color: palette.muted, fontSize: 11, textAlign: "right", marginTop: 8 },
+  companionActions: { flexDirection: "row", gap: 8, marginTop: 8 },
   panelGap: { gap: 2, marginBottom: 8 },
   settingRow: { flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 11 },
   settingCopy: { flex: 1 },
